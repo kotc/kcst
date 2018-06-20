@@ -2,7 +2,7 @@
 KotCzarny's Slackware tool
 
 What it can do for you? Let me explain by pasting cmdline help:
-
+```
 kcst-0.9.1 - KotCzarny's Slackware Tool.
 Usage: kcst command [args]
 
@@ -26,4 +26,4 @@ Commands:
   sbd string - slackbuilds download
   sbb string - slackbuilds download and build
   sbg[et] string - slackbuilds download, build and install
-
+```
