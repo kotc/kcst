@@ -26,3 +26,4 @@ Commands:
   sbd string - slackbuilds download
   sbb string - slackbuilds download and build
   sbg[et] string - slackbuilds download, build and install
+
