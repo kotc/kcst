@@ -3,7 +3,6 @@ KotCzarny's Slackware tool
 
 What it can do for you? Let me explain by pasting cmdline help:
 ```
-kcst-0.9.2 - KotCzarny's Slackware Tool.
 Usage: kcst command [args]
 
 Commands:
