@@ -1,5 +1,5 @@
 #!/usr/bin/php
-<?php $conf['kcst_version']="0.9.1";
+<?php $conf['kcst_version']="0.9.2";
 
 # kcst - KotCzarny's slackware tool
 # Copyright (C) ariel/KotCzarny 2018
@@ -10,28 +10,39 @@
 #!/_src/php/php-4.4.9/sapi/cli/php
 
 ### REQUIREMENTS: ###
-# - php4+
+# - php (cli, 4+)
 # - wget
 # - bzip2 (for "sf": MANIFEST.bz2)
-### IMPLEMENTED: ###
+### TOOLS: ###
 # - s/sf/g/r/u/d/l - package manager
-# - ru - cruft cleaner (use only after checking what it does!)
 # - slist/start/stop/restart/reload/graceful - /etc/rc.d/rc.* service controller
-# - mconf/mmake/mpkg/mhelp - source to pkg helpers
+# - news - get and display ChangeLog.txt
 # - fixlibs - find and install packages for missing library dependencies
 # - sbs/sbu/sbd/sbb/sbg - slackbuilds search/update/download/build/get
+# - rnm - regexp based batch renamer
+# - ru - cruft cleaner (use only after checking what it does!)
+# - mconf/mmake/mpkg/mhelp - source to pkg helpers (if one is too lazy to write .slackbuild)
 ### BUGS/CAVEATS: ###
 # - doesnt check for dependencies in install/upgrade
 # - interrupted install/upgrade/remove might leave cruft, add a tool for that
-### TODO: ###
-# - use config file instead of hardcoding in script
+### DONE: ###
+# + use config file instead of hardcoding in script
+# + changelog.txt 'news' command
+### TODO/IDEAS: ###
 # - sources/(re)building
 # - workarounds for building older software: -std=gnu89
-# - -current changelog.txt 'news' command
 # - check downloads with md5/asc
 # - check if packages are ok when $cwd contains no version
+# - GUI
+# - replace rm with code
+# - replace `` with code or $()
+# - compress manpages with xz?
 
-### DEFAULT CONFIG ### Note: kcst.conf from /etc|~|. will override any of those settings
+### DEFAULT CONFIG ###
+#
+# Note: kcst.conf (from /etc or ~ or .) will override any of config settings
+#
+
 #$conf['release']='slackware-current';
 $conf['release']='slackware-14.2';
 #$conf['release']='slackware-14.0';
@@ -45,7 +56,7 @@ $conf['sb_release']="14.2";
 $conf['sb_path']=$conf['dl_path']."/sb";
 $conf['sb_TAG']=""; # will get replaced by _hostname if empty
 
-# clear some locales and docs after pkg install?
+# clear some cruft after pkg install. enable only after you check what remove_unneeded() does.
 $conf['remove_unneeded']=!true;
 # upgrade only when major version changes?
 $conf['only_major_diff_in_upgrade']=!true;
@@ -96,6 +107,7 @@ $p=@$argv[1]; unset($argv[0]); unset($argv[1]);
 
 if($p==''||$p=="-h"||$p=="--help") { show_help(); return; }
 if($p=='ru') { check_root(); $v=@$argv[2]; if($v=="") $v=2; remove_unneeded($v); return; }
+if($p=='rnm') { rnm($argv); return; }
 if(preg_match("@^(slist|stop|start|status|restart|reload|graceful)$@", $p)) { check_root(); svc($p, join(" ",$argv)); return; }
 if($p=="update") { check_root(); update_file("PACKAGES.TXT",0,1); return; }
 if($p=="sf") { pkg_search_file(@$argv[2],1); return; }
@@ -103,6 +115,7 @@ if($p=="mhelp") { $argv[2]="help"; mconf($argv); return; }
 if($p=="mconf") { mconf($argv); return; }
 if($p=="mmake") { mmake($argv); return; }
 if($p=="mpkg") { mpkg($argv); return; }
+if($p=="news") { pkg_news(); return; }
 if($p=="fixlibs") { check_root(); pkg_fixlibs(join(" ",$argv)); return; }
 if($p=="sbs") { sb_search(join(" ",$argv)); return; }
 if($p=="sbu") { sb_update(); return; }
@@ -136,23 +149,25 @@ Commands:
   l[ist] [string] - list installed pkgs (with optional filtering)
   s[earch] string - search pkgs (string is a regexp)
   sf string - search MANIFEST for file path fragment
+  news - get and display changelog.txt
   fixlibs [paths] - try to autoinstall missing libs
-  ru - remove unneeded files (mostly docs and locales, don't use if system is not set to english)
   slist|start|stop|restart|reload|graceful string - control system services (/etc/rc.d/rc.string)
-  mconf [help|mmx|p3|pm|c7] - run ./configure
-  mmake - run make
-  mpkg - run makepkg
   sbu - slackbuilds update list
   sbs string - slackbuilds search
   sbd string - slackbuilds download
   sbb string - slackbuilds download and build
   sbg[et] string - slackbuilds download, build and install
+  rnm from to [-d] [-h] [-r] [-w] [-x] - regexp based batch rename, pass -h for help
 
 release: ${conf['release']}
 SBo release: ${conf['sb_release']}
 base: ${conf['base']}
 download path: ${conf['dl_path']}
+SBo tmp path: ${conf['sb_path']}
 "; }
+
+#  ru - remove unneeded files (mostly docs and locales, don't use if system is not set to english)
+#  mconf [help|mmx|p3|pm|c7] - run ./configure, mmake - run make, mpkg - run makepkg
 
 #####################
 function get_config() { global $conf;
@@ -172,6 +187,67 @@ function check_root() {
 ##################
 function run($cmd) { $fp=popen($cmd, "r"); if($fp<=0) return -1;
  while(!feof($fp)) print fgets($fp, 32);  return pclose($fp); }
+
+###################
+function rnm($argv) { global $conf;
+ $mre=@$argv[2]; $rpl=@$argv[3]; unset($argv[2]); unset($argv[3]);
+
+ if(empty($mre) || in_array("-h",$argv)) {
+  print("usage: rnm match replacement [-d] [-r] [-w] [-x]
+
+	match - regexp to match
+	replacement - guess?
+	-d - also rename directories
+	-r - run recursively
+	-w - really rename (default is dry-run mode)
+	-x - allow descending cross-dev mounts
+");
+  return;
+ }
+ $c=Array("writeok"=>false, "recurse"=>false, "recurse_limit"=>4, "dirstoo"=>false, "xdev"=>false);
+ if(in_array("-w",$argv)) $c['writeok']=true;
+ if(in_array("-r",$argv)) $c['recurse']=true;
+ if(in_array("-d",$argv)) $c['dirstoo']=true;
+ if(in_array("-x",$argv)) $c['xdev']=true;
+
+ $cwd=getcwd(); print "[cwd=$cwd, match=$mre, rplcmnt=$rpl, w=${c['writeok']} r=${c['recurse']} d=${c['dirstoo']} x=${c['xdev']}]\n";
+
+ $did=0; $didok=0;
+ $reb="@"; if(strpos($mre,$reb)!==false) {
+  $reb="/"; if(strpos($mre,$reb)!==false) {
+   $reb="#"; if(strpos($mre,$reb)!==false) {
+    print "matching regexp contains @, / and #, can't continue\n"; return;
+ }}}
+
+ $st=stat($cwd); $c['st0']=$st[0];
+ list($did,$didok)=rnm0($c,0,$cwd,"$reb$mre$reb",$rpl);
+ print "[matches=$did, changes=$didok]\n";
+}
+#####################################
+function rnm0($c,$rl,$path,$mre,$rpl) { $did=0; $didok=0;
+ if(!$c['xdev']) { $st=stat($path); if($st[0]!=$c['st0']) { if(0)print "[not going xdev (${st[0]}!=${c['st0']})]\n"; return Array($did,$didok); } }
+ if($rl>=$c['recurse_limit']) { print "[recursion level reached]\n"; return Array($did,$didok); }
+ $dh=opendir($path); if(!$dh) { print "[can't open $path]\n"; return Array($did,$didok); }
+ while(($de=readdir($dh))) if($de!="" && $de!="." && $de!="..") {
+  if($c['recurse'] && !is_link($de) && is_dir($de) && $rl<=$c['recursion_limit']) {
+   list($did2,$didok2)=rnm0($c,$rl+1,"$path/$de",$mre,$rpl);
+   $did+=$did2; $didok+=$didok2;
+  }
+  if(!$c['dirstoo'] && is_dir($de)) continue;
+  $de2=preg_replace("$mre",$rpl,$de);
+  if($de!=$de2 && $de2!='') { $fn="$path/$de"; $fn2="$path/$de2";
+   $did++;
+   if(file_exists($fn2)) $msg="[E:EXISTS]";
+   else {
+    if(!$c['writeok'])       $msg="[WOULDRNM]"; else
+    { if(rename($fn,$fn2)) { $msg="[RENAMED_]"; $didok++; } else $msg="[E:FAILED]"; }
+   }
+   print "$msg [$path: $de => $de2]\n";
+  }
+ }
+ closedir($dh);
+ return Array($did,$didok);
+}
 
 #######################
 function svc($cmd, $sn) {
@@ -220,7 +296,7 @@ function mconf($argv) {
 ##################### slackware my make
 function mmake($argv) {
  $a=file_get_contents("/proc/cpuinfo");
- if(preg_match("@^processor@", $a, $m)) $jobs=count($m); else $jobs=1;
+ if(preg_match("@^processor@", $a, $m)) $jobs=floor(count($m)*1.5); else $jobs=1;
  $cmd='time make -j'.$jobs.' '.join(" ", $argv).' 2>z_mmake.log2 | tee z_mmake.log;';
  $cmd.=' if [ -s z_mmake.log2 ]; then echo -e "\n\n  STDERR:\n"; tail -n30 z_mmake.log2; fi;';
 # print "$cmd\n";
@@ -443,8 +519,10 @@ function pkg_search($name) { global $conf;
  print "\n### package names\n";
  $found=Array(); $plk=array_keys($conf['pkgs']); natsort($plk);
  foreach(preg_grep("/$name/", $plk) as $pn) { $p=$conf['pkgs'][$pn];
-  if(@$pi[$pn]) $inst='INSTALLED'; else $inst='';
-  print "$pn - ".@$p['desc'][0]." (${p['ver']}, ${p['dir']}, ${p['sizc']}k) $inst\n";
+  $v=$p['ver'].'-'.$p['rel'];
+  if(!@$pi[$pn]) $inst=''; else
+  { $inst='INSTALLED'; $vi=$pi[$pn]['ver'].'-'.$pi[$pn]['rel']; if($v!=$vi) $inst.=":$vi"; }
+  print "$pn - ".@$p['desc'][0]." ($v, ${p['dir']}, ${p['sizc']}k) $inst\n";
   $found[]=$pn;
  }
 
@@ -452,8 +530,10 @@ function pkg_search($name) { global $conf;
  foreach($conf['pkgs'] as $pn=>$p) if(!empty($p['desc'])) {
   if(preg_grep("/$name/i", $p['desc']) && !in_array($pn,$found))
   {
-   if(@$pi[$pn]) $inst='INSTALLED'; else $inst='';
-   print "$pn - ".$p['desc'][0]." (${p['ver']}, ${p['dir']}, ${p['sizc']}k) $inst\n";
+   $v=$p['ver'].'-'.$p['rel'];
+   if(!@$pi[$pn]) $inst=''; else
+   { $inst='INSTALLED'; $vi=$pi[$pn]['ver'].'-'.$pi[$pn]['rel']; if($v!=$vi) $inst.=":$vi"; }
+   print "$pn - ".$p['desc'][0]." ($v, ${p['dir']}, ${p['sizc']}k) $inst\n";
    $found[]=$pn;
   }
  }
@@ -479,6 +559,25 @@ function pkg_search_file($name, $verb) { global $conf;  if($name=="") { show_hel
  }
  fclose($f);
  return $ret;
+}
+
+/*function update_file($fn0,$dontmangle,$verb) { global $conf;
+ if($dontmangle) $fn="${conf['dl_path']}/$fn0";
+ else $fn="${conf['dl_path']}/_$fn0-${conf['release']}";
+ $fntmp="$fn.tmp";
+ if($verb) { print "$fn0 updating.."; $v="-v"; } else $v="";
+ run("${conf['wget']} -O\"$fntmp\" \"${conf['base']}/$fn0\"; if cmp -s \"$fn\" \"$fntmp\"; then rm $v \"$fntmp\"; else mv $v \"$fntmp\" \"$fn\"; fi");
+}*/
+
+###################
+function pkg_news() { global $conf;
+ $fn0="ChangeLog.txt";
+ $link=preg_replace("@/slackware/$@", "/$fn0", $conf['base']);
+ $fn="${conf['dl_path']}/_$fn0-${conf['release']}";
+ if(is_file($fn) && time()-@filectime($fn)>60*60) { print "removing old $fn0\n"; unlink($fn); }
+ run("${conf['wget']} -O\"$fn\" \"$link\"");
+ # $a=array_reverse(file($fn)); foreach($a as $l) { print $l; }
+ print file_get_contents($fn);
 }
 
 ###########################
