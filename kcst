@@ -1,5 +1,5 @@
 #!/usr/bin/php
-<?php $conf['kcst_version']="0.9.4";
+<?php $conf['kcst_version']="0.9.5";
 
 # kcst - KotCzarny's slackware tool
 # Copyright (C) ariel/KotCzarny 2018
@@ -33,7 +33,9 @@
 # + use config file instead of hardcoding in script
 # + changelog.txt 'news' command
 # + check downloads with md5
+# + sbd: get from slackware.uk/sbosrcarch if original download fails
 # TODO/IDEAS:
+# - 64bit support (downloads)
 # - sources/(re)building
 # - workarounds for building older software: -std=gnu89
 # - check if packages are ok when $cwd contains no version
@@ -277,15 +279,28 @@ function sb_download($name) { global $conf;
 
  foreach(explode(" ",$name) as $pn) { $p=@$conf['sb'][$pn];
   if(empty($p)) { print "sb package '$pn' not found, skipping\n"; continue; }
-   print "getting $pn .. ";
-   $path="${conf['sb_path']}/$pn"; $fn="$path.tar.gz";
-   $link="${conf['sb_base']}/${p['LOCATION']}.tar.gz";
-#   @unlink($fn);
-   if(@filesize($fn)>0) print "\n"; else
-    run("cd \"${conf['sb_path']}\" && rm -rf \"$pn\" && ${conf['wget']} -O\"$fn\" \"$link\" && tar -xzf \"$fn\" ");
-   foreach(explode(" ", $p['DOWNLOAD']) as $link) {
-    run("${conf['wget']} -P \"$path\" \"$link\" ");
+  print "getting $pn .. ";
+  $path="${conf['sb_path']}/$pn"; $fn="$path.tar.gz";
+  $link="${conf['sb_base']}/${p['LOCATION']}.tar.gz";
+#  @unlink($fn);
+  if(@filesize($fn)>0) print "\n"; else
+   run("cd \"${conf['sb_path']}\" && rm -rf \"$pn\" && ${conf['wget']} -O\"$fn\" \"$link\" && tar -xzf \"$fn\" ");
+
+#FIXME: handle MD5SUM_x86_64 and DOWNLOAD_x86_64
+  $sums=explode(" ",$p['MD5SUM']);
+  foreach(explode(" ", $p['DOWNLOAD']) as $n => $link) if($link!="") {
+   $sum=$sums[$n]; $fn0=basename($link); $fn="$path/$fn0"; if(check_md5($fn, $sum)) continue;
+
+   # try getting from .slackbuild specified location
+   run("${conf['wget']} -P \"$path\" \"$link\" ");
+
+   if(!check_md5($fn, $sum)) { @unlink($fn);
+    print "download failed, trying to get it from slackware.uk/sbosrcarch .. ";
+    $link="http://slackware.uk/sbosrcarch/by-md5/${sum[0]}/${sum[1]}/$sum/$fn0";
+    run("${conf['wget']} -O\"$fn\" \"$link\" ");
+    if(!check_md5($fn, $sum)) { @unlink($fn); die("download failed. please investigate.\n"); }
    }
+  }
  }
 }
 
