@@ -1,42 +1,48 @@
 #!/usr/bin/php
-<?php $conf['kcst_version']="0.9.3";
+<?php $conf['kcst_version']="0.9.4";
 
 # kcst - KotCzarny's slackware tool
 # Copyright (C) ariel/KotCzarny 2018
 # All rights reserved.
 # This project is distributed under GPLv3 license.
 
-#!/usr/local/bin/php4kc
-#!/_src/php/php-4.4.9/sapi/cli/php
+#!/1/php4static
+#!/1/_src/php/php-4.4.9/sapi/cli/php
 
-### REQUIREMENTS: ###
+# REQUIREMENTS:
 # - php (cli, 4+)
 # - wget
 # - bzip2 (for "sf": MANIFEST.bz2)
-### TOOLS: ###
+# - find, grep (for some tools)
+# PKG TOOLS:
 # - s/sf/g/r/u/d/l - package manager
-# - slist/start/stop/restart/reload/graceful - /etc/rc.d/rc.* service controller
 # - news - get and display ChangeLog.txt
 # - fixlibs - find and install packages for missing library dependencies
 # - sbs/sbu/sbd/sbb/sbg - slackbuilds search/update/download/build/get
+# kc's TOOLS:
+# - slist/start/stop/restart/reload/graceful - /etc/rc.d/rc.* service controller
 # - rnm - regexp based batch renamer
+# - gf - grep-find
+# - cf - count files
 # - ru - cruft cleaner (use only after checking what it does!)
 # - mconf/mmake/mpkg/mhelp - source to pkg helpers (if one is too lazy to write .slackbuild)
-### BUGS/CAVEATS: ###
+# BUGS/CAVEATS:
 # - doesnt check for dependencies in install/upgrade
 # - interrupted install/upgrade/remove might leave cruft, add a tool for that
-### DONE: ###
+# DONE:
 # + use config file instead of hardcoding in script
 # + changelog.txt 'news' command
-### TODO/IDEAS: ###
+# + check downloads with md5
+# TODO/IDEAS:
 # - sources/(re)building
 # - workarounds for building older software: -std=gnu89
-# - check downloads with md5/asc
 # - check if packages are ok when $cwd contains no version
 # - GUI
+# - get rid of run() where possible
 # - replace rm with code
 # - replace `` with code or $()
 # - compress manpages with xz?
+# - compress MANIFEST with gz
 
 ### DEFAULT CONFIG ###
 #
@@ -58,8 +64,10 @@ $conf['sb_TAG']=""; # will get replaced by _hostname if empty
 
 # clear some cruft after pkg install. enable only after you check what remove_unneeded() does.
 $conf['remove_unneeded']=!true;
+
 # upgrade only when major version changes?
 $conf['only_major_diff_in_upgrade']=!true;
+
 # throttle download?
 $conf['rate_limit']=""; #$conf['ratelimit']="--limit-rate=910k";
 ### DEFAULT CONFIG END ###
@@ -70,7 +78,10 @@ get_config();
 $conf['sb_base']="http://slackbuilds.org/slackbuilds/".$conf['sb_release'];
 
 # wget cmdline
-$conf['wget']="wget -q --show-progress --progress=bar -nc -c ${conf['rate_limit']} -P \"${conf['dl_path']}\"";
+$conf['wget']="wget -nv --show-progress --progress=bar -o- -nc -c ${conf['rate_limit']} -P \"${conf['dl_path']}\"";
+# for old system where you can't update wget/certs any other way
+# and https is not working:
+#$conf['wget'].=" --no-check-certificate";
 
 $conf['bases']=array( /* default: */ 0=>1,
  1=>"http://mirrors.slackware.com/slackware/${conf['release']}/slackware/",
@@ -106,15 +117,14 @@ if(!empty($_GET)) { httpd_way(); return; }
 $p=@$argv[1]; unset($argv[0]); unset($argv[1]);
 
 if($p==''||$p=="-h"||$p=="--help") { show_help(); return; }
-if($p=='ru') { check_root(); $v=@$argv[2]; if($v=="") $v=2; remove_unneeded($v); return; }
-if($p=='rnm') { rnm($argv); return; }
-if(preg_match("@^(slist|stop|start|status|restart|reload|graceful)$@", $p)) { check_root(); svc($p, join(" ",$argv)); return; }
-if($p=="update") { check_root(); update_file("PACKAGES.TXT",0,1); return; }
+if($p=="s" || $p=="search") { pkg_search(@$argv[2]); return; }
+if($p=="g" || $p=="get") { check_root(); pkg_get(join(" ",$argv)); return; }
+if($p=="d" || $p=="download") { pkg_download(join(" ",$argv)); return; }
+if($p=="r" || $p=="remove") { check_root(); pkg_remove(join(" ",$argv)); return; }
+if($p=="u" || $p=="upgrade") { check_root(); pkg_upgrade(@$argv[2]); return; }
+if($p=="l" || $p=="list") { pkg_list(@$argv[2]); return; }
+if($p=="upd" || $p=="update") { check_root(); update_file("PACKAGES.TXT",0,1); return; }
 if($p=="sf") { pkg_search_file(@$argv[2],1); return; }
-if($p=="mhelp") { $argv[2]="help"; mconf($argv); return; }
-if($p=="mconf") { mconf($argv); return; }
-if($p=="mmake") { mmake($argv); return; }
-if($p=="mpkg") { mpkg($argv); return; }
 if($p=="news") { pkg_news(); return; }
 if($p=="fixlibs") { check_root(); pkg_fixlibs(join(" ",$argv)); return; }
 if($p=="sbs") { sb_search(join(" ",$argv)); return; }
@@ -122,12 +132,15 @@ if($p=="sbu") { sb_update(); return; }
 if($p=="sbd") { sb_download(join(" ",$argv)); return; }
 if($p=="sbb") { sb_build(join(" ",$argv)); return; }
 if($p=="sbg") { check_root(); sb_get(join(" ",$argv)); return; }
-if(preg_match("@^s@", $p)) { pkg_search(@$argv[2]); return; }
-if(preg_match("@^g@", $p)) { check_root(); pkg_get(join(" ",$argv)); return; }
-if(preg_match("@^d@", $p)) { pkg_download(join(" ",$argv)); return; }
-if(preg_match("@^r@", $p)) { check_root(); pkg_remove(join(" ",$argv)); return; }
-if(preg_match("@^u@", $p)) { check_root(); pkg_upgrade(@$argv[2]); return; }
-if(preg_match("@^l@", $p)) { pkg_list(@$argv[2]); return; }
+if(preg_match("@^(slist|stop|start|status|restart|reload|graceful)$@", $p)) { check_root(); svc($p, join(" ",$argv)); return; }
+if($p=='ru') { check_root(); $v=@$argv[2]; if($v=="") $v=2; remove_unneeded($v); return; }
+if($p=='rnm') { rnm($argv); return; }
+if($p=='gf') { grepfind($argv); return; }
+if($p=='cf') { count_files($argv); return; }
+if($p=="mhelp") { $argv[2]="help"; mconf($argv); return; }
+if($p=="mconf") { mconf($argv); return; }
+if($p=="mmake") { mmake($argv); return; }
+if($p=="mpkg") { mpkg($argv); return; }
 show_help(); return;
 
 ### MAIN END ###
@@ -158,14 +171,16 @@ Commands:
   sbb string - slackbuilds download and build
   sbg[et] string - slackbuilds download, build and install
   rnm from to [-d] [-h] [-r] [-w] [-x] - regexp based batch rename, pass -h for help
+  cf [path] - count files at path (or . if no path given)
+  gf regexp [path1..] - recursively find files/dirs matching regexp in paths (or . if no path given)
 
 release: ${conf['release']}
 SBo release: ${conf['sb_release']}
 base: ${conf['base']}
 download path: ${conf['dl_path']}
 SBo tmp path: ${conf['sb_path']}
-"; }
-
+";
+}
 #  ru - remove unneeded files (mostly docs and locales, don't use if system is not set to english)
 #  mconf [help|mmx|p3|pm|c7] - run ./configure, mmake - run make, mpkg - run makepkg
 
@@ -173,79 +188,21 @@ SBo tmp path: ${conf['sb_path']}
 function get_config() { global $conf;
  foreach(Array("/etc/kcst.conf","~/kcst.conf","./kcst.conf") as $f)
  {
-  if(@filesize($f)>0)
-  foreach(explode("\n",file_get_contents("/etc/kcst.conf")) as $l) {
+  if(@filesize($f)>0) foreach(explode("\n",file_get_contents("/etc/kcst.conf")) as $l) {
    if(preg_match("@^([^#][^ =]+)=(.*)$@",$l,$m)) { $conf[$m[1]]=$m[2]; }
   }
  }
 }
+
 #####################
 function check_root() {
  $uid=-1; if(preg_match("@Uid:\s+(\d+)@", file_get_contents("/proc/self/status"), $m)) $uid=$m[1];
- if($uid!=0) die("this command requires root rights\n"); }
+ if($uid!=0) die("this command requires root rights\n");
+}
 
 ##################
 function run($cmd) { $fp=popen($cmd, "r"); if($fp<=0) return -1;
- while(!feof($fp)) print fgets($fp, 32);  return pclose($fp); }
-
-###################
-function rnm($argv) { global $conf;
- $mre=@$argv[2]; $rpl=@$argv[3]; unset($argv[2]); unset($argv[3]);
-
- if(empty($mre) || in_array("-h",$argv)) {
-  print("usage: rnm match replacement [-d] [-r] [-w] [-x]
-
-	match - regexp to match
-	replacement - guess?
-	-d - also rename directories
-	-r - run recursively
-	-w - really rename (default is dry-run mode)
-	-x - allow descending cross-dev mounts
-");
-  return;
- }
-
- $c=Array("writeok"=>false, "recurse"=>false, "recurse_limit"=>20, "dirstoo"=>false, "xdev"=>false);
- if(in_array("-w",$argv)) $c['writeok']=true;
- if(in_array("-r",$argv)) $c['recurse']=true;
- if(in_array("-d",$argv)) $c['dirstoo']=true;
- if(in_array("-x",$argv)) $c['xdev']=true;
- $cwd=getcwd();
- print "[cwd=$cwd, match=$mre, rplcmnt=$rpl, w=${c['writeok']} r=${c['recurse']} d=${c['dirstoo']} x=${c['xdev']}]\n";
-
- $did=0; $didok=0;
- $reb="@"; if(strpos($mre,$reb)!==false) {
-  $reb="/"; if(strpos($mre,$reb)!==false) {
-   $reb="#"; if(strpos($mre,$reb)!==false) {
-    print "matching regexp contains @, / and #, can't continue\n"; return;
- }}}
-
- $st=stat($cwd); $c['st0']=$st[0];
- list($did,$didok)=rnm0($c,0,$cwd,"$reb$mre$reb",$rpl);
- print "[matches=$did, changes=$didok]\n";
-}
-#####################################
-function rnm0($c,$rl,$path,$mre,$rpl) { $did=0; $didok=0;
- if(!$c['xdev']) { $st=stat($path); if($st[0]!=$c['st0']) { if(0)print "[not going xdev (${st[0]}!=${c['st0']})]\n"; return Array($did,$didok); } }
- $dh=opendir($path); if(!$dh) { print "[can't open $path]\n"; return Array($did,$didok); }
- while(($de=readdir($dh))) if($de!="" && $de!="." && $de!="..") {
-  if($c['recurse'] && $rl<$c['recurse_limit'] && !is_link($de) && is_dir("$path/$de")) {
-   list($did2,$didok2)=rnm0($c,$rl+1,"$path/$de",$mre,$rpl);
-   $did+=$did2; $didok+=$didok2;
-  }
-  if(!$c['dirstoo'] && is_dir($de)) continue;
-  $de2=preg_replace("$mre",$rpl,$de);
-  if($de!=$de2 && $de2!='') { $did++; $fn="$path/$de"; $fn2="$path/$de2";
-   if(file_exists($fn2)) $msg="[E:EXISTS]";
-   else {
-    if(!$c['writeok'])       $msg="[WOULDRNM]"; else
-    { if(rename($fn,$fn2)) { $msg="[RENAMED_]"; $didok++; } else $msg="[E:FAILED]"; }
-   }
-   print "$msg [$path: $de => $de2]\n";
-  }
- }
- closedir($dh);
- return Array($did,$didok);
+ while(!feof($fp)) print fgets($fp, 32);  return pclose($fp);
 }
 
 #######################
@@ -253,91 +210,6 @@ function svc($cmd, $sn) {
  if($cmd=='slist') { print `ls -l /etc/rc.d/|grep ^-|grep -v '.new$'`; return; }
  $fn="/etc/rc.d/rc.$sn"; if(file_exists($fn)) { run("$fn $cmd"); return; }
  else { $fn="/etc/rc.d/$sn"; if(file_exists($fn)) { return; run("$fn $cmd"); } }
-}
-
-##################### slackware my configure
-function mconf($argv) {
- if(@filesize("./configure")>0) $configure='./configure';
- else if(@filesize("../configure")>0) $configure='../configure';
- else die("no 'configure' in current or parent dir\n");
-
- $arch=@$argv[2]; if($arch=="help") { run("$configure --help 2>&1|tee z_conf_help.log"); return; }
- unset($argv[2]);
-
- $cmd="echo \"configuring for: $arch\"; echo -n \"$arch\" >z_arc;";
- $cmd.=' CC="gcc"; CXX="g++";';
-# $cmd=' CC="distcc gcc"; CXX="distcc g++";';
-# $cmd=' CC="/usr/local/bin/distcc/gcc"; CXX="/usr/local/bin/distcc/g++";';
- $cmd.=' export CHOST="i686-pc-linux-gnu";';
- $O="-s -Ofast -pipe -fomit-frame-pointer";
- switch($arch) {
-#  case 'pm': $cmd.=' CFLAGS="'.$O.' -march=prescott -mtune=prescott -mmmx -msse -msse2 -msse3 -mfpmath=sse -ftree-vectorize -fno-strict-aliasing";'; break;
-  case 'pm': $cmd.=' CFLAGS="'.$O.' -march=pentium-m -mtune=pentium-m";'; break;
-  case 'p3': $cmd.=' CFLAGS="'.$O.' -march=pentium3 -mtune=pentium3 -fno-strict-aliasing -ftree-vectorize";'; break;
-  case 'pmmx': $cmd.=' CFLAGS="'.$O.' -march=pentium-mmx -mtune=pentium-mmx -fno-strict-aliasing -fomit-frame-pointer";'; break;
-#  case 'c7': $cmd.=' CFLAGS="'.$O.' -march=i686 -mtune=i686 -mmmx -msse";'; break;
-  case 'c7': $cmd.=' CFLAGS="'.$O.' -march=c3-2 -mtune=c3-2 -mfpmath=sse,387 -msse2 -mmmx -msse";'; break;
-  default: #die("usage: <arch> [params for configure]\narch choices: pm, p3, mmx, c7\n");
-   $cmd.=' CFLAGS="'.$O.' -march=native -mtune=native";'; break;
- }
- $cmd.=' CXXFLAGS="${CFLAGS}";';
- $cmd.=' export CC CXX CHOST CFLAGS CXXFLAGS;';
- $cmd.=' echo -e "CC:\t$CC\nCHOST:\t$CHOST\nCFLAGS:\t$CFLAGS\nCXXFLAGS:\t$CXXFLAGS";';
- $cmd.=' time '.$configure.' 2>&1 --prefix=/usr --sysconfdir=/etc';
-# if [ "$1" = "nodis" ]; then CONF=""; shift; fi
- $cmd.=' --disable-nls --disable-dependency-tracking';
- $cmd.=" ".join(" ", $argv);
- $cmd.=' |tee z_conf.log';
-# print "$cmd\n";
- run($cmd);
-}
-
-##################### slackware my make
-function mmake($argv) {
- $a=file_get_contents("/proc/cpuinfo");
- if(preg_match("@^processor@", $a, $m)) $jobs=floor(count($m)*1.5); else $jobs=1;
- $cmd='time make -j'.$jobs.' '.join(" ", $argv).' 2>z_mmake.log2 | tee z_mmake.log;';
- $cmd.=' if [ -s z_mmake.log2 ]; then echo -e "\n\n  STDERR:\n"; tail -n30 z_mmake.log2; fi;';
-# print "$cmd\n";
- run($cmd);
-}
-#################### slackware make package
-function mpkg($argv) { global $conf;
- $arch=@file_get_contents("z_arc");
- if(empty($arch)) { print "z_arc missing, use mconf before build?\n"; return -1; }
- $cwd=getcwd(); $pn=basename($cwd); $fn="${conf['sb_path']}/$pn-$arch-1${conf['sb_TAG']}.txz";
-# $tmpp=$conf['sb_path']."/tmpbuild-$pn";
- $tmpp="/tmp/tmpbuild-$pn";
- $cmd="rm -rf \"$tmpp\"; mkdir -p \"$tmpp\" || exit 1;";
- $cmd.=" make DESTDIR=\"$tmpp\" install || exit 1; cd \"$tmpp\";";
- $cmd.=' find . -type f -wholename "*/man/*" -exec gzip -9v {} \; ;';
- $cmd.=' echo removing unneeded locales, gtk-docs..;';
- $cmd.=' (cd usr/share/locale && rm 2>/dev/null -rf cs_* zh_* en_CA `ls |grep -vE "(C|locale|en_US|pl|remove_)"` );';
- $cmd.=' (cd usr/lib/locale && rm 2>/dev/null -rf `ls |grep -vE "(pl_|en_US|remove)"` );';
- $cmd.=' rm 2>/dev/null -rf usr/share/gtk-doc;';
- $cmd.=" echo \"Press ENTER to create pkg $fn\"; read trash;";
- $cmd.=" makepkg -l y -c y \"$fn\";";
- $cmd.=" ls -l \"$fn\"; cd \"$cwd\"; rm -rf \"$tmpp\";";
-# print "$cmd\n";
- run($cmd);
-}
-
-
-############################
-function pkg_download($name) { global $conf;
- get_pkgs();  if(substr($conf['base'],-1)=="/") $bs=""; else $bs="/";
- foreach(explode(" ",$name) as $pn) {
-  $p=@$conf['pkgs'][$pn]; if(empty($p)) { print "package \"$pn\" not found\n"; continue; }
-  $fn=$p['fname'];
-# FIXME: filesizes in PACKAGES.TXT are based on 4000b blocks, add a check using CHECKSUMS.md5 ?
-  $fs=@filesize($conf['dl_path']."/".$fn);  $fs2=$p['sizc']*1000;
-  if($fs>=1024) { if(1)print "pkg $pn already downloaded ($fs, $fs2)\n"; continue; }
-  print "pkg_download $fn ";
-  run("wget -q --show-progress --progress=bar -nc -c ${conf['rate_limit']} -P \"${conf['dl_path']}\" \"${conf['base']}$bs${p['dir']}/$fn\"");
-  $fs=@filesize($conf['dl_path']."/".$fn);
-  if($fs<=1024) { print " failed\n"; return -1; } # else print "got $fs\n";
- }
- return 0;
 }
 
 ####################
@@ -351,6 +223,7 @@ function sb_update() { global $conf;
  if($fs<=1024) { print " failed\n"; return -1; }
  print "got $fs\n"; return $fs;
 }
+
 #######################
 function sb_get_infos() { global $conf; if(!empty($conf['sb'])) return;
  $fn="${conf['dl_path']}/_SLACKBUILDS.TXT.gz"; if(@filesize($fn)<=1024) { sb_update(); }
@@ -366,6 +239,7 @@ function sb_get_infos() { global $conf; if(!empty($conf['sb'])) return;
  }
  return pclose($fp);
 }
+
 #########################
 function sb_search($name) { global $conf;
  get_installed(); sb_get_infos(); $found=Array(); print "### ".count($conf['sb'])." sb packages\n";
@@ -395,6 +269,7 @@ function sb_search($name) { global $conf;
 
  print "\n### found ".count($found)." package(s)\n";
 }
+
 ###########################
 function sb_download($name) { global $conf;
  if(empty($name)) { print "empty param\n"; return; }
@@ -413,6 +288,7 @@ function sb_download($name) { global $conf;
    }
  }
 }
+
 ########################
 function sb_build($name) { global $conf;
  if(empty($name)) { print "empty param\n"; return; }
@@ -440,6 +316,7 @@ function sb_build($name) { global $conf;
   print "build OK ($pkg)\n"; rename($pkg,"${conf['sb_path']}/$bpkg");
  }
 }
+
 ######################
 function sb_get($name) { global $conf;
  if(empty($name)) { print "empty param\n"; return; }
@@ -457,9 +334,252 @@ function sb_get($name) { global $conf;
 
   print "installing $bpkg\n";
   $r=run("upgradepkg >>/tmp/kcst.log 2>&1 --install-new \"$pkg\" ");
-  if($r!=0) die("there was an error ($r), check /tmp/kcst.log\n");
+  if($r!=0) { print ("there was an error ($r), check /tmp/kcst.log for full info, dumping 30 lines:\n\n");
+   run("tail -n 30 /tmp/kcst.log"); die(); }
+
   remove_unneeded(0);
  }
+}
+
+###############################################
+function update_file($fn0,$dontmangle,$verbose) { global $conf;
+ if($dontmangle) $fn="${conf['dl_path']}/$fn0";
+ else $fn="${conf['dl_path']}/_$fn0-${conf['release']}";
+ $fntmp="$fn.tmp"; $link="${conf['base']}/$fn0";
+ if($verbose) { print "$fn0 updating.. "; $v="-v"; } else $v="";
+ $cmd="${conf['wget']} -O\"$fntmp\" \"$link\";";
+ $cmd.=" if [ ! -s \"$fntmp\" ]; then rm $v \"$fntmp\"; exit 1; fi;";
+ $cmd.=" if cmp -s \"$fn\" \"$fntmp\"; then rm $v \"$fntmp\"; else mv $v \"$fntmp\" \"$fn\"; fi;";
+ run($cmd);
+}
+
+########################
+function get_installed() { global $conf;
+ $l=explode("\n", `ls -L "${conf['base_installed']}/"`);
+ #if(!empty($conf['pkgs_to_ignore'])) { $l=preg_grep($conf['pkgs_to_ignore'], $l, PREG_GREP_INVERT); }
+ foreach($l as $fname) if(!empty($fname))
+ { $p=name2arr($fname); $conf['pkgs_installed'][$p['name']]=$p; }
+ print "get_installed(): ".count($conf['pkgs_installed'])." packages\n";
+}
+
+#################################
+function get_packages_to_ignore() { global $conf;  $conf['pkgs_to_ignore']="";
+ if(file_exists("packages_to_ignore"))
+ {
+  $conf['pkgs_to_ignore']=@file_get_contents("packages_to_ignore");
+  $conf['pkgs_to_ignore']=explode("\n",$conf['pkgs_to_ignore']);
+  foreach($conf['pkgs_to_ignore'] as $k => $v)
+  { $v=trim($v);
+   if(empty($v)) unset($conf['pkgs_to_ignore'][$k]); else $conf['pkgs_to_ignore'][$k]="^$v-";
+  }
+  $conf['pkgs_to_ignore']=implode("|",$conf['pkgs_to_ignore']);
+  if(!empty($conf['pkgs_to_ignore']))
+  {
+   $conf['pkgs_to_ignore']="/".$conf['pkgs_to_ignore']."/";
+   print "[ preg_ignored packages: ${conf['pkgs_to_ignore']} ]\n";
+  }
+ }
+}
+###################
+function get_pkgs() { global $conf;  if(!@empty($conf['pkgs'])) return;
+# $flts=filectime($fn);  $delta=time()-$flts; print "$fn0 (${delta}s)\n";
+# { print "$fn0 updating.."; run("set -x; ${conf['wget']} \"${conf['base']}/$fn0\""); }
+ $fn0="PACKAGES.TXT"; $fn="${conf['dl_path']}/_$fn0-${conf['release']}";
+ if(@filesize($fn)<=0) { @unlink($fn); update_file($fn0,0,1); }
+ $conf['pkgs']=Array();
+
+ $gnl=0; $f=@fopen($fn, "r"); if(!$f) { print "can't open $fn\n"; $conf['pkgs']=Array(); return; }
+ while(!feof($f)) { $a=fgets($f);
+  if($gnl==1) { $gnl++; if(preg_match("@^([^:]+):.+?\((.+)\)\s*$@", $a, $m))
+   { $conf['pkgs'][$pn]['desc'][0]=trim($m[2]); continue; }
+   $gnl=0; continue;
+  }
+  if($gnl>1) { $gnl++; if(preg_match("@^([^:]+):\s*?(.*)$@", $a, $m))
+   { $conf['pkgs'][$pn]['desc'][$gnl-2]=trim($m[2]); continue; }
+   $gnl=0; continue;
+  }
+
+  if(preg_match("@^PACKAGE NAME:\s+(.+?)$@", $a, $m)) { $fname=trim($m[1]); $loca=$sizc=$sizu='';
+   if(preg_match("@\.([a-z]+)$@", $fname, $m)) { $fext=$m[1];
+    $fname=substr($fname,0,-(1+strlen($fext)));
+   }
+
+   $p1=explode("-", $fname); $p0=count($p1)-1;
+   $rel=$p1[$p0]; unset($p1[$p0]);
+   $arch=$p1[$p0-1]; unset($p1[$p0-1]);
+   $ver=$p1[$p0-2]; unset($p1[$p0-2]);
+   $pn=join("-", $p1);
+
+   $conf['pkgs'][$pn]['fname']="$fname.$fext";  $conf['pkgs'][$pn]['name']=$pn;
+   $conf['pkgs'][$pn]['ver']=$ver;
+   $conf['pkgs'][$pn]['rel']=$rel;
+   $conf['pkgs'][$pn]['arch']=$arch;
+   continue; }
+  if(preg_match("@^PACKAGE LOCATION:\s+(.+?)$@", $a, $m)) {
+   $conf['pkgs'][$pn]['loca']=trim($m[1]);
+   $conf['pkgs'][$pn]['dir']=preg_replace("@^.*/@", "", trim($m[1]));
+   continue; }
+  if(preg_match("@^PACKAGE SIZE \(compressed\):\s+(.+?)$@", $a, $m)) {
+   if(preg_match("@^(\d+)\s+K$@", trim($m[1]), $m2)) $conf['pkgs'][$pn]['sizc']=$m2[1];
+   continue; }
+  if(preg_match("@^PACKAGE SIZE \(uncompressed\):\s+(.+?)$@", $a, $m)) {
+   if(preg_match("@^(\d+)\s+K$@", trim($m[1]), $m2)) $conf['pkgs'][$pn]['sizu']=$m2[1];
+   continue; }
+  if(preg_match("@^PACKAGE DESCRIPTION:@", $a)) { $gnl=1; continue; }
+  $gnl=0;
+ }
+ fclose($f); # print_r($conf['pkgs']); die();
+ print "get_pkgs(): ".count($conf['pkgs'])." packages\n";
+}
+/*
+#######################
+function get_filelist_offf() { global $conf;
+ if(!empty($conf['pkgs_filelist'])) { if(0)print "pkgs_filelist already populated\n"; return; }
+
+ $fn="/tmp/FILE_LIST-${conf['release']}";
+ $flts=filectime($fn);  $delta=time()-$flts;
+ if(filesize($fn)<=0 || $delta>3600*4) {
+  $link="${conf['base1']}/FILE_LIST";
+  print "<div>getting <a href=\"$link\">FILE_LIST</a></div>";
+  print `wget -q -O "$fn" "$link"`;
+ }
+
+ # -rw-r--r-- 1 root root 2326633 2003-03-13 19:00 ./y/bsd-games-2.13-i386-6.tgz
+ foreach(preg_grep("@\.t[gx]z$@", file($fn)) as $k)
+ {
+  $tmp=trim(preg_replace("@ +@", " ", $k));
+  $tmp=explode(" ", $tmp);
+  $size=$tmp[4];
+  $date=$tmp[5]." ".$tmp[6];
+  list($trash,$dir,$fname)=explode("/",$tmp[7]);;
+  $fext=substr($fname,-3);
+  $fname=substr($fname,0,-4);
+  if(!empty($fname))
+  {
+   $p=name2arr($fname);
+   $conf['pkgs_filelist'][$p['name']]=$p;
+   $conf['pkgs_filelist'][$p['name']]['dir']=$dir;
+   $conf['pkgs_filelist'][$p['name']]['date']=$date;
+   $conf['pkgs_filelist'][$p['name']]['size']=$size;
+   $conf['pkgs_filelist'][$p['name']]['fname']=$fname;
+   $conf['pkgs_filelist'][$p['name']]['fext']=$fext;
+  }
+ }
+}
+*/
+
+########################
+function get_checksums() { global $conf; if(!empty($conf['pkgs_md5'])) return;
+ $fn0="CHECKSUMS.md5"; $fn="${conf['dl_path']}/_$fn0-${conf['release']}";
+ if(@filesize($fn)<=0) { @unlink($fn); update_file($fn0,0,1); }
+ $conf['pkgs_md5']=Array();
+ foreach(explode("\n",file_get_contents($fn)) as $line) {
+  if(!preg_match("@^([0-9a-f]+).+/(.+?)-([^-]+)-([^-]+)-([^-]+)\.([^\.]+)$@", $line, $m)) continue;
+  if($m[6]=="txt"||$m[6]=="asc") continue;
+  $conf['pkgs_md5'][$m[2]]=$m;
+ }
+ print "get_checksums(): ".count($conf['pkgs_md5'])." md5 sums\n";
+}
+
+##############################
+function check_md5($fn, $sum0) {
+ $a=@file_get_contents($fn); $sum=md5($a); unset($a);
+ $sum0=strtolower($sum0);
+#print "fn: $fn\nsum0: $sum0\n sum: $sum\n";
+ if($sum0==$sum) return 1; else return 0;
+}
+
+##########################################################################################################
+function cget_progress_cb($resource, $download_size = 0, $downloaded = 0, $upload_size = 0, $uploaded = 0) {
+# $resource parameter was added in version 5.5.0 breaking backwards compatibility;
+# if we are using PHP version lower than 5.5.0, we need to shift the arguments
+# @see http://php.net/manual/en/function.curl-setopt.php#refsect1-function.curl-setopt-changelog
+ if (version_compare(PHP_VERSION, '5.5.0') < 0) {
+  $uploaded = $upload_size;
+  $upload_size = $downloaded;
+  $downloaded = $download_size;
+  $download_size = $resource;
+ }
+
+# $perc=
+ print "[$downloaded / $download size]                    \r";
+ sleep(1); // just to see effect
+ return 1;
+ if($download_size > 0) echo $downloaded / $download_size  * 100;
+ ob_flush(); flush();
+}
+
+###################################
+function cget($link, $fn, $dl_path) { global $conf;
+ if($link=="") { print "curl(): error: empty link\n"; return -1; }
+
+# print "cget(): $link\n";
+
+ if($dl_path=="") $dl_path=$conf['dl_path'];
+ if($fn=="") $fn=basename($link);
+ if($fn[0]!="/") $fn="$dl_path/$fn";
+ $fp=fopen($fn, "w"); if(!$fp) { print "cget(): can't open output file $fn\n"; return -1; }
+
+ $ch = curl_init();
+ curl_setopt($ch,CURLOPT_URL,$link);
+# curl_setopt($ch,CURLOPT_MAX_RECV_SPEED_LARGE,1024*105*4);
+ $tmp=@$conf['curl_timeout']; if($tmp>0) curl_setopt($ch,CURLOPT_TIMEOUT,$tmp);
+ #curl_setopt($ch,CURLOPT_HTTPHEADER,array('Accept-Encoding: gzip,deflate'));
+ #curl_setopt($ch,CURLOPT_HTTPHEADER,array('Expect:'));
+ curl_setopt($ch,CURLOPT_FOLLOWLOCATION,1);
+ curl_setopt($ch,CURLOPT_MAXREDIRS,10);
+ #curl_setopt($ch,CURLOPT_SSL_VERIFYPEER,1);
+ #curl_setopt($ch,CURLOPT_SSL_VERIFYHOST,2);
+ #curl_setopt($ch,CURLOPT_SSL_CIPHER_LIST,);
+
+ curl_setopt($ch,CURLOPT_RETURNTRANSFER,1);
+ curl_setopt($ch,CURLOPT_FILE,$fp);
+
+ #curl_setopt($ch,CURLOPT_COOKIEJAR,$this->_cookieFileLocation);
+ #curl_setopt($ch,CURLOPT_COOKIEFILE,$this->_cookieFileLocation);
+ #curl_setopt($ch,CURLOPT_USERPWD, $this->auth_name.':'.$this->auth_pass);
+ #curl_setopt($ch,CURLOPT_POST,1);
+ #curl_setopt($ch,CURLOPT_POSTFIELDS,$this->_postFields);
+ #curl_setopt($ch,CURLOPT_HEADER,1);
+ #curl_setopt($ch,CURLOPT_NOBODY,1);
+ #curl_setopt($ch,CURLOPT_BINARYTRANSFER,1);
+ curl_setopt($ch,CURLOPT_USERAGENT, "kcst/${conf['kcst_version']} (compatible; MSIE 6.0; Windows NT 5.1; SV1; .NET CLR 1.1.4322)");
+ #curl_setopt($ch,CURLOPT_REFERER, $link);
+
+# curl_setopt($ch,CURLOPT_BUFFERSIZE,128);
+# curl_setopt($ch,CURLOPT_PROGRESSFUNCTION,'cget_progress_cb'); # requires php 5.3.0+
+ curl_setopt($ch,CURLOPT_NOPROGRESS,0);
+
+ $buf=curl_exec($ch); $status=curl_getinfo($ch,CURLINFO_HTTP_CODE); $err=curl_error($ch); curl_close($ch);
+ fclose($fp);
+ if($status<200 || $status>=400) { print "cget(): error, status=$status, error=$err\n"; return -1; }
+# $f=fopen($fn, "w"); if(!$f) { print "cget(): can't open output file $fn\n"; return -1; }
+# fwrite($f, $buf); fclose($f);
+ return 0;
+}
+
+############################
+function pkg_download($name) { global $conf;
+ get_pkgs(); get_checksums();
+ if(substr($conf['base'],-1)=="/") $bs=""; else $bs="/";
+ foreach(explode(" ",$name) as $pn) {
+  $p=@$conf['pkgs'][$pn]; if(empty($p)) { print "package \"$pn\" not found\n"; continue; }
+  $fn=$p['fname']; $fnf=$conf['dl_path']."/".$fn;
+
+  if(file_exists($fnf)) {
+   if(check_md5($fnf, $conf['pkgs_md5'][$pn][1])) {
+    print "md5 OK ($fn), skipping download\n"; continue;
+   } else { print "md5 differs on $fn. "; @unlink($fnf); }
+  }
+
+  print "get $fn ";
+  if(0) run("${conf['wget']} \"${conf['base']}$bs${p['dir']}/$fn\" |grep -v URL:");
+  else cget("${conf['base']}$bs${p['dir']}/$fn", "", "");
+
+  if(!check_md5($fnf, $conf['pkgs_md5'][$pn][1]))
+  { print " failed\n"; @unlink($fnf); return -1; } # else print "got $fs\n";
+ }
+ return 0;
 }
 
 ###########################
@@ -480,13 +600,16 @@ function pkg_install($name) { global $conf;
   }
 
   $r=run("upgradepkg >>/tmp/kcst.log 2>&1 --install-new \"${conf['dl_path']}/${p['fname']}\"");
-  if($r!=0) die("there was an error ($r), check /tmp/kcst.log\n");
+  if($r!=0) { print("there was an error ($r), check /tmp/kcst.log for full info, dumping 30 lines:\n\n");
+   run("tail -n 30 /tmp/kcst.log"); die(); }
+
   remove_unneeded(0);
  }
 }
 
 #####################
 function pkg_get($pn) { global $conf;
+ if(empty($pn)) { print "pkg_get(): empty params\n"; return; }
  if(pkg_download($pn)<0) die("there was an error in download\n");
  pkg_install($pn);
 }
@@ -560,30 +683,11 @@ function pkg_search_file($name, $verb) { global $conf;  if($name=="") { show_hel
  return $ret;
 }
 
-/*function update_file($fn0,$dontmangle,$verb) { global $conf;
- if($dontmangle) $fn="${conf['dl_path']}/$fn0";
- else $fn="${conf['dl_path']}/_$fn0-${conf['release']}";
- $fntmp="$fn.tmp";
- if($verb) { print "$fn0 updating.."; $v="-v"; } else $v="";
- run("${conf['wget']} -O\"$fntmp\" \"${conf['base']}/$fn0\"; if cmp -s \"$fn\" \"$fntmp\"; then rm $v \"$fntmp\"; else mv $v \"$fntmp\" \"$fn\"; fi");
-}*/
-
-###################
-function pkg_news() { global $conf;
- $fn0="ChangeLog.txt";
- $link=preg_replace("@/slackware/$@", "/$fn0", $conf['base']);
- $fn="${conf['dl_path']}/_$fn0-${conf['release']}";
- if(is_file($fn) && time()-@filectime($fn)>60*60) { print "removing old $fn0\n"; unlink($fn); }
- run("${conf['wget']} -O\"$fn\" \"$link\"");
- # $a=array_reverse(file($fn)); foreach($a as $l) { print $l; }
- print file_get_contents($fn);
-}
-
 ###########################
 function pkg_fixlibs($name) { global $conf;
  get_pkgs(); get_installed(); #$pi=$conf['pkgs_installed'];
  $i=0; $cwd=getcwd(); $libs=Array();
- if(empty($name)) $name="/bin /sbin /usr/bin /usr/sbin /lib /usr/lib";
+ if(empty($name)) $name="/bin /sbin /usr/bin /usr/sbin /lib /usr/lib /usr/libexec";
  foreach(explode(" ",$name) as $path) {
   if($path[0]!='/') $path="$cwd/$path";
   if(is_file($path)) $flist=$path; else
@@ -642,6 +746,7 @@ function pkg_find_upgrades() { global $conf;
   $conf['pu'][$pn]='n';
  }
 }
+
 ###############################
 function pkg_upgrade($rels_too) { global $conf;
  if($rels_too) $conf['only_major_diff_in_upgrade']=0;
@@ -653,10 +758,14 @@ function pkg_upgrade($rels_too) { global $conf;
  $psM=round($ps/1024,2); $pcnt=count($pu); if($pcnt==0) { print "no upgrades found\n"; die(); }
 
  $ds=0; foreach($pu as $pn=>$sta) { $p=$conf['pkgs'][$pn];
-  $ds+=@filesize($conf['dl_path']."/".$p['fname'].".".$p['fext']);
+#if(file_exists($conf['dl_path']."/".$p['fname'])) print ".";
+#print_r($p);
+
+  $ds+=@filesize($conf['dl_path']."/".$p['fname']);
  } $dsM=round($ds/1024/1024,2); $dsMr=$psM-$dsM;
 
- print "need to get $pcnt packages (${dsMr}MB of ${psM}MB): ".join(" ",array_keys($pu))."\n";
+ print "following packages will be upgraded: ".join(" ",array_keys($pu))."\n";
+ print "$pcnt upgraded, need to get ${dsMr} MB of archives. ";
 
  # check available disk space
  $dfs=disk_free_space($conf['dl_path']); $dfsM=round($dfs/1024/1024,2);
@@ -669,11 +778,27 @@ function pkg_upgrade($rels_too) { global $conf;
 
  print "continue? (y/N) "; $ans=trim(fgets(STDIN)); if($ans!='y') { print "cancelled.\n"; die(); }
 
- $essential="glibc-solibs|pkgtools|sed|grep|wget|openssl";
+ $essential="aaa_elflibs|glibc-solibs|pkgtools|sed|grep";
+ # wget and it's reqs..
+ $essential.="|wget|openssl-solibs|libunistring|libidn2|util-linux"; # in aaa_elflibs: pcre, zlib
+ $ess_pkgs=join(" ", preg_grep("/^($essential)/",array_keys($pu)) );
+
  # first some essential packages
- pkg_get(join(" ", preg_grep("/^($essential)/",array_keys($pu)) ));
+ if(!empty($ess_pkgs)) pkg_get($ess_pkgs);
+
  # then the rest
  pkg_get(join(" ", preg_grep("/^($essential)/",array_keys($pu),PREG_GREP_INVERT) ));
+}
+
+###################
+function pkg_news() { global $conf;
+ $fn0="ChangeLog.txt";
+ $link=preg_replace("@/slackware/$@", "/$fn0", $conf['base']);
+ $fn="${conf['dl_path']}/_$fn0-${conf['release']}";
+ if(is_file($fn) && time()-@filectime($fn)>60*60) { print "removing old $fn0\n"; unlink($fn); }
+ run("${conf['wget']} -O\"$fn\" \"$link\"");
+ # $a=array_reverse(file($fn)); foreach($a as $l) { print $l; }
+ print file_get_contents($fn);
 }
 
 ########################
@@ -845,124 +970,153 @@ function name2arr($fname) { # wine-0.9.4-i486-S10.2-nodebug, wireless-tools-27-i
  return $p;
 }
 
-########################
-function get_installed() { global $conf;
- $l=explode("\n", `ls -L "${conf['base_installed']}"`);
- #if(!empty($conf['pkgs_to_ignore'])) { $l=preg_grep($conf['pkgs_to_ignore'], $l, PREG_GREP_INVERT); }
- foreach($l as $fname) if(!empty($fname))
- { $p=name2arr($fname); $conf['pkgs_installed'][$p['name']]=$p; }
+
+##################### slackware my configure
+function mconf($argv) {
+ if(@filesize("./configure")>0) $configure='./configure';
+ else if(@filesize("../configure")>0) $configure='../configure';
+ else die("no 'configure' in current or parent dir\n");
+
+ $arch=@$argv[2]; if($arch=="help") { run("$configure --help 2>&1|tee z_conf_help.log"); return; }
+ unset($argv[2]); if($arch=="") $arch="i586";
+
+ $cmd="echo \"configuring for: $arch\"; echo -n \"$arch\" >z_arc;";
+ $cmd.=' CC="gcc"; CXX="g++";';
+# $cmd=' CC="distcc gcc"; CXX="distcc g++";';
+# $cmd=' CC="/usr/local/bin/distcc/gcc"; CXX="/usr/local/bin/distcc/g++";';
+ $cmd.=' export CHOST="i686-pc-linux-gnu";';
+ $O="-s -Ofast -pipe -fomit-frame-pointer";
+ switch($arch) {
+#  case 'pm': $cmd.=' CFLAGS="'.$O.' -march=prescott -mtune=prescott -mmmx -msse -msse2 -msse3 -mfpmath=sse -ftree-vectorize -fno-strict-aliasing";'; break;
+  case 'pm': $cmd.=' CFLAGS="'.$O.' -march=pentium-m -mtune=pentium-m";'; break;
+  case 'p3': $cmd.=' CFLAGS="'.$O.' -march=pentium3 -mtune=pentium3 -fno-strict-aliasing -ftree-vectorize";'; break;
+  case 'pmmx': $cmd.=' CFLAGS="'.$O.' -march=pentium-mmx -mtune=pentium-mmx -fno-strict-aliasing -fomit-frame-pointer";'; break;
+#  case 'c7': $cmd.=' CFLAGS="'.$O.' -march=i686 -mtune=i686 -mmmx -msse";'; break;
+  case 'c7': $cmd.=' CFLAGS="'.$O.' -march=c3-2 -mtune=c3-2 -mfpmath=sse,387 -msse2 -mmmx -msse";'; break;
+  case 'i586': $cmd.=' CFLAGS="'.$O.' -march=i586 -mtune=i686";'; break;
+  default: #die("usage: <arch> [params for configure]\narch choices: pm, p3, mmx, c7\n");
+   $cmd.=' CFLAGS="'.$O.' -march=native -mtune=native";'; break;
+ }
+ $cmd.=' CXXFLAGS="${CFLAGS}";';
+ $cmd.=' export CC CXX CHOST CFLAGS CXXFLAGS;';
+ $cmd.=' echo -e "CC:\t$CC\nCHOST:\t$CHOST\nCFLAGS:\t$CFLAGS\nCXXFLAGS:\t$CXXFLAGS";';
+ $cmd.=' time '.$configure.' 2>&1 --prefix=/usr --sysconfdir=/etc';
+# if [ "$1" = "nodis" ]; then CONF=""; shift; fi
+ $cmd.=' --disable-nls --disable-dependency-tracking';
+ $cmd.=" ".join(" ", $argv);
+ $cmd.=' |tee z_conf.log';
+# print "$cmd\n";
+ run($cmd);
 }
 
-#################################
-function get_packages_to_ignore() { global $conf;  $conf['pkgs_to_ignore']="";
- if(file_exists("packages_to_ignore"))
- {
-  $conf['pkgs_to_ignore']=@file_get_contents("packages_to_ignore");
-  $conf['pkgs_to_ignore']=explode("\n",$conf['pkgs_to_ignore']);
-  foreach($conf['pkgs_to_ignore'] as $k => $v)
-  { $v=trim($v);
-   if(empty($v)) unset($conf['pkgs_to_ignore'][$k]); else $conf['pkgs_to_ignore'][$k]="^$v-";
-  }
-  $conf['pkgs_to_ignore']=implode("|",$conf['pkgs_to_ignore']);
-  if(!empty($conf['pkgs_to_ignore']))
-  {
-   $conf['pkgs_to_ignore']="/".$conf['pkgs_to_ignore']."/";
-   print "[ preg_ignored packages: ${conf['pkgs_to_ignore']} ]\n";
-  }
- }
+##################### slackware my make
+function mmake($argv) {
+ $a=file_get_contents("/proc/cpuinfo");
+ if(preg_match("@^processor@", $a, $m)) $jobs=floor(count($m)*1.5); else $jobs=1;
+ $cmd='time make -j'.$jobs.' '.join(" ", $argv).' 2>z_mmake.log2 | tee z_mmake.log;';
+ $cmd.=' if [ -s z_mmake.log2 ]; then echo -e "\n\n  STDERR:\n"; tail -n30 z_mmake.log2; fi;';
+# print "$cmd\n";
+ run($cmd);
 }
-############################################
-function update_file($fn0,$dontmangle,$verb) { global $conf;
- if($dontmangle) $fn="${conf['dl_path']}/$fn0";
- else $fn="${conf['dl_path']}/_$fn0-${conf['release']}";
- $fntmp="$fn.tmp";
- if($verb) { print "$fn0 updating.."; $v="-v"; } else $v="";
- run("${conf['wget']} -O\"$fntmp\" \"${conf['base']}/$fn0\"; if cmp -s \"$fn\" \"$fntmp\"; then rm $v \"$fntmp\"; else mv $v \"$fntmp\" \"$fn\"; fi");
+#################### slackware make package
+function mpkg($argv) { global $conf;
+ $arch=@file_get_contents("z_arc");
+ if(empty($arch)) { print "z_arc missing, use mconf before build?\n"; return -1; }
+ $cwd=getcwd(); $pn=basename($cwd); $fn="${conf['sb_path']}/$pn-$arch-1${conf['sb_TAG']}.txz";
+# $tmpp=$conf['sb_path']."/tmpbuild-$pn";
+ $tmpp="/tmp/tmpbuild-$pn";
+ $cmd="rm -rf \"$tmpp\"; mkdir -p \"$tmpp\" || exit 1;";
+ $cmd.=" make DESTDIR=\"$tmpp\" install || exit 1; cd \"$tmpp\";";
+ $cmd.=' find . -type f -wholename "*/man/*" -exec gzip -9v {} \; ;';
+ $cmd.=' echo removing unneeded locales, gtk-docs..;';
+ $cmd.=' (cd usr/share/locale && rm 2>/dev/null -rf cs_* zh_* en_CA `ls |grep -vE "(C|locale|en_US|pl|remove_)"` );';
+ $cmd.=' (cd usr/lib/locale && rm 2>/dev/null -rf `ls |grep -vE "(pl_|en_US|remove)"` );';
+ $cmd.=' rm 2>/dev/null -rf usr/share/gtk-doc;';
+ $cmd.=" echo \"Press ENTER to create pkg $fn\"; read trash;";
+ $cmd.=" makepkg -l y -c y \"$fn\";";
+ $cmd.=" ls -l \"$fn\"; cd \"$cwd\"; rm -rf \"$tmpp\";";
+# print "$cmd\n";
+ run($cmd);
 }
+
+
 ###################
-function get_pkgs() { global $conf;  if(!@empty($conf['pkgs'])) return;
-# $flts=filectime($fn);  $delta=time()-$flts; print "$fn0 (${delta}s)\n";
-# { print "$fn0 updating.."; run("set -x; ${conf['wget']} \"${conf['base']}/$fn0\""); }
- $fn0="PACKAGES.TXT"; $fn="${conf['dl_path']}/_$fn0-${conf['release']}";
- if(@filesize($fn)<=0) { update_file($fn0,0,0); }
+function rnm($argv) { global $conf;
+ $mre=@$argv[2]; $rpl=@$argv[3]; unset($argv[2]); unset($argv[3]);
 
- $gnl=0; $f=@fopen($fn, "r"); if(!$f) { print "can't open $fn\n"; $conf['pkgs']=Array(); return; }
- while(!feof($f)) { $a=fgets($f);
-  if($gnl==1) { $gnl++; if(preg_match("@^([^:]+):.+?\((.+)\)\s*$@", $a, $m))
-   { $conf['pkgs'][$pn]['desc'][0]=trim($m[2]); continue; }
-   $gnl=0; continue;
-  }
-  if($gnl>1) { $gnl++; if(preg_match("@^([^:]+):\s*?(.*)$@", $a, $m))
-   { $conf['pkgs'][$pn]['desc'][$gnl-2]=trim($m[2]); continue; }
-   $gnl=0; continue;
-  }
+ if(empty($mre) || in_array("-h",$argv)) {
+  print("usage: rnm match replacement [-d] [-r] [-w] [-x]
 
-  if(preg_match("@^PACKAGE NAME:\s+(.+?)$@", $a, $m)) { $fname=trim($m[1]); $loca=$sizc=$sizu='';
-   if(preg_match("@\.([a-z]+)$@", $fname, $m)) { $fext=$m[1];
-    $fname=substr($fname,0,-(1+strlen($fext)));
+	match - regexp to match
+	replacement - guess?
+	-d - also rename directories
+	-r - run recursively
+	-w - really rename (default is dry-run mode)
+	-x - allow descending cross-dev mounts
+");
+  return;
+ }
+
+ $c=Array("writeok"=>false, "recurse"=>false, "recurse_limit"=>20, "dirstoo"=>false, "xdev"=>false);
+ if(in_array("-w",$argv)) $c['writeok']=true;
+ if(in_array("-r",$argv)) $c['recurse']=true;
+ if(in_array("-d",$argv)) $c['dirstoo']=true;
+ if(in_array("-x",$argv)) $c['xdev']=true;
+ $cwd=getcwd();
+ print "[cwd=$cwd, match=$mre, rplcmnt=$rpl, w=${c['writeok']} r=${c['recurse']} d=${c['dirstoo']} x=${c['xdev']}]\n";
+
+ $did=0; $didok=0;
+ $reb="@"; if(strpos($mre,$reb)!==false) {
+  $reb="/"; if(strpos($mre,$reb)!==false) {
+   $reb="#"; if(strpos($mre,$reb)!==false) {
+    print "matching regexp contains @, / and #, can't continue\n"; return;
+ }}}
+
+ $st=stat($cwd); $c['st0']=$st[0];
+ list($did,$didok)=rnm0($c,0,$cwd,"$reb$mre$reb",$rpl);
+ print "[matches=$did, changes=$didok]\n";
+}
+#####################################
+function rnm0($c,$rl,$path,$mre,$rpl) { $did=0; $didok=0;
+ if(!$c['xdev']) { $st=stat($path); if($st[0]!=$c['st0']) { if(0)print "[not going xdev (${st[0]}!=${c['st0']})]\n"; return Array($did,$didok); } }
+ $dh=opendir($path); if(!$dh) { print "[can't open $path]\n"; return Array($did,$didok); }
+ while(($de=readdir($dh))) if($de!="" && $de!="." && $de!="..") {
+  if($c['recurse'] && $rl<$c['recurse_limit'] && !is_link($de) && is_dir("$path/$de")) {
+   list($did2,$didok2)=rnm0($c,$rl+1,"$path/$de",$mre,$rpl);
+   $did+=$did2; $didok+=$didok2;
+  }
+  if(!$c['dirstoo'] && is_dir($de)) continue;
+  $de2=preg_replace("$mre",$rpl,$de);
+  if($de!=$de2 && $de2!='') { $did++; $fn="$path/$de"; $fn2="$path/$de2";
+   if(file_exists($fn2)) $msg="[E:EXISTS]";
+   else {
+    if(!$c['writeok'])       $msg="[WOULDRNM]"; else
+    { if(rename($fn,$fn2)) { $msg="[RENAMED_]"; $didok++; } else $msg="[E:FAILED]"; }
    }
-
-   $p1=explode("-", $fname); $p0=count($p1)-1;
-   $rel=$p1[$p0]; unset($p1[$p0]);
-   $arch=$p1[$p0-1]; unset($p1[$p0-1]);
-   $ver=$p1[$p0-2]; unset($p1[$p0-2]);
-   $pn=join("-", $p1);
-
-   $conf['pkgs'][$pn]['fname']="$fname.$fext";  $conf['pkgs'][$pn]['name']=$pn;
-   $conf['pkgs'][$pn]['ver']=$ver;
-   $conf['pkgs'][$pn]['rel']=$rel;
-   $conf['pkgs'][$pn]['arch']=$arch;
-   continue; }
-  if(preg_match("@^PACKAGE LOCATION:\s+(.+?)$@", $a, $m)) {
-   $conf['pkgs'][$pn]['loca']=trim($m[1]);
-   $conf['pkgs'][$pn]['dir']=preg_replace("@^.*/@", "", trim($m[1]));
-   continue; }
-  if(preg_match("@^PACKAGE SIZE \(compressed\):\s+(.+?)$@", $a, $m)) {
-   if(preg_match("@^(\d+)\s+K$@", trim($m[1]), $m2)) $conf['pkgs'][$pn]['sizc']=$m2[1];
-   continue; }
-  if(preg_match("@^PACKAGE SIZE \(uncompressed\):\s+(.+?)$@", $a, $m)) {
-   if(preg_match("@^(\d+)\s+K$@", trim($m[1]), $m2)) $conf['pkgs'][$pn]['sizu']=$m2[1];
-   continue; }
-  if(preg_match("@^PACKAGE DESCRIPTION:@", $a)) { $gnl=1; continue; }
-  $gnl=0;
- }
- fclose($f); # print_r($conf['pkgs']); die();
-}
-/*
-#######################
-function get_filelist_offf() { global $conf;
- if(!empty($conf['pkgs_filelist'])) { if(0)print "pkgs_filelist already populated\n"; return; }
-
- $fn="/tmp/FILE_LIST-${conf['release']}";
- $flts=filectime($fn);  $delta=time()-$flts;
- if(filesize($fn)<=0 || $delta>3600*4) {
-  $link="${conf['base1']}/FILE_LIST";
-  print "<div>getting <a href=\"$link\">FILE_LIST</a></div>";
-  print `wget -q -O "$fn" "$link"`;
- }
-
- # -rw-r--r-- 1 root root 2326633 2003-03-13 19:00 ./y/bsd-games-2.13-i386-6.tgz
- foreach(preg_grep("@\.t[gx]z$@", file($fn)) as $k)
- {
-  $tmp=trim(preg_replace("@ +@", " ", $k));
-  $tmp=explode(" ", $tmp);
-  $size=$tmp[4];
-  $date=$tmp[5]." ".$tmp[6];
-  list($trash,$dir,$fname)=explode("/",$tmp[7]);;
-  $fext=substr($fname,-3);
-  $fname=substr($fname,0,-4);
-  if(!empty($fname))
-  {
-   $p=name2arr($fname);
-   $conf['pkgs_filelist'][$p['name']]=$p;
-   $conf['pkgs_filelist'][$p['name']]['dir']=$dir;
-   $conf['pkgs_filelist'][$p['name']]['date']=$date;
-   $conf['pkgs_filelist'][$p['name']]['size']=$size;
-   $conf['pkgs_filelist'][$p['name']]['fname']=$fname;
-   $conf['pkgs_filelist'][$p['name']]['fext']=$fext;
+   print "$msg [$path: $de => $de2]\n";
   }
  }
+ closedir($dh);
+ return Array($did,$didok);
 }
-*/
+
+########################
+function grepfind($argv) {
+ $re=@$argv[2]; unset($argv[2]); if(!array_key_exists(3,$argv)) { $argv[3]="."; }
+ foreach($argv as $path) {
+  $cmd='shopt -s dotglob; find "'.$path.'" | egrep -iE "'.$re.'";';
+  run($cmd);
+ }
+}
+
+###########################
+function count_files($argv) {
+ $path=@$argv[2]; if($path=="") $path=".";
+ $cmd="shopt -s dotglob; cd \"$path\" && for each in * .; do";
+ $cmd.=' if [ -d "$each" ]; then echo -n "'.$path.'/$each "; find "$each" -type f|wc -l; fi;';
+ $cmd.=' done | sort -n -k2;';
+ run($cmd);
+}
+
 ### FUNCTIONS END ###
 ?>
