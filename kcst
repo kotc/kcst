@@ -1,5 +1,5 @@
 #!/usr/bin/php
-<?php $conf['kcst_version']="0.9.5";
+<?php $conf['kcst_version']="0.9.6";
 
 # kcst - KotCzarny's slackware tool
 # Copyright (C) ariel/KotCzarny 2018
@@ -35,7 +35,7 @@
 # + check downloads with md5
 # + sbd: get from slackware.uk/sbosrcarch if original download fails
 # TODO/IDEAS:
-# - 64bit support (downloads)
+# - better 64bit support (downloads)
 # - sources/(re)building
 # - workarounds for building older software: -std=gnu89
 # - check if packages are ok when $cwd contains no version
@@ -133,7 +133,7 @@ if($p=="sbs") { sb_search(join(" ",$argv)); return; }
 if($p=="sbu") { sb_update(); return; }
 if($p=="sbd") { sb_download(join(" ",$argv)); return; }
 if($p=="sbb") { sb_build(join(" ",$argv)); return; }
-if($p=="sbg") { check_root(); sb_get(join(" ",$argv)); return; }
+if($p=="sbg" || $p=="sbget") { check_root(); sb_get(join(" ",$argv)); return; }
 if(preg_match("@^(slist|stop|start|status|restart|reload|graceful)$@", $p)) { check_root(); svc($p, join(" ",$argv)); return; }
 if($p=='ru') { check_root(); $v=@$argv[2]; if($v=="") $v=2; remove_unneeded($v); return; }
 if($p=='rnm') { rnm($argv); return; }
@@ -286,9 +286,9 @@ function sb_download($name) { global $conf;
   if(@filesize($fn)>0) print "\n"; else
    run("cd \"${conf['sb_path']}\" && rm -rf \"$pn\" && ${conf['wget']} -O\"$fn\" \"$link\" && tar -xzf \"$fn\" ");
 
-#FIXME: handle MD5SUM_x86_64 and DOWNLOAD_x86_64
-  $sums=explode(" ",$p['MD5SUM']);
-  foreach(explode(" ", $p['DOWNLOAD']) as $n => $link) if($link!="") {
+#FIXME: handle MD5SUM_x86_64 and DOWNLOAD_x86_64 better
+  $sums=explode(" ",$p['MD5SUM']." ".$p['MD5SUM_x86_64']);
+  foreach(explode(" ", $p['DOWNLOAD']." ".$p['DOWNLOAD_x86_64']) as $n => $link) if($link!="" && $link!="UNSUPPORTED") {
    $sum=$sums[$n]; $fn0=basename($link); $fn="$path/$fn0"; if(check_md5($fn, $sum)) continue;
 
    # try getting from .slackbuild specified location
