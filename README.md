@@ -1,11 +1,11 @@
 # kcst
 KotCzarny's Slackware tool
 
-Please note: php4static is a php4 binary for 32bit linux with openssl and curl compiled in. mainly for my private use and not required for kcst to run, but might be handy when system is badly damaged (to the point that wget fails).
+Please note: php4static is a php4 binary for 32bit linux with openssl and curl compiled in. It's included mainly for my private use and not required for kcst to run, but might be handy when system is badly damaged (to the point that wget fails).
 
 What it can do for you? Let me explain by pasting cmdline help:
 ```
-kcst-0.9.4 - KotCzarny's Slackware Tool
+kcst-0.9.6 - KotCzarny's Slackware Tool
 Usage: kcst command [args]
 
 Commands:
