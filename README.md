@@ -3,6 +3,7 @@ KotCzarny's Slackware tool
 
 What it can do for you? Let me explain by pasting cmdline help:
 ```
+kcst-0.9.4 - KotCzarny's Slackware Tool
 Usage: kcst command [args]
 
 Commands:
@@ -23,4 +24,6 @@ Commands:
   sbb string - slackbuilds download and build
   sbg[et] string - slackbuilds download, build and install
   rnm from to [-d] [-h] [-r] [-w] [-x] - regexp based batch rename, pass -h for help
+  cf [path] - count files at path (or . if no path given)
+  gf regexp [path1..] - recursively find files/dirs matching regexp in paths (or . if no path given)
 ```
